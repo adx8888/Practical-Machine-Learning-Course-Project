@@ -1,0 +1,106 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Augusto"
+date: "05/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+## Introduction to the data
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+### Load the data:
+```{r loaddata}
+# Make sure the data is in the same directory as this .rmd
+dir_name <-dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir_name)
+# Load data
+pml.testing <- read.csv("pml-testing.csv", row.names = 1)
+pml.training <- read.csv("pml-training.csv", row.names = 1)
+# Give an overview of the data
+dim(pml.training)
+dim(pml.testing)
+```
+The training data contains 19622 observations of 159 variables.
+The test data contains 20 observations.
+
+The goal of the project is to predict the manner in which participants did the exercise. This is the "classe" variable in the training set. Let's have a look at the "classe" variable:
+```{r classe}
+library(ggplot2)
+ggplot(data = pml.training, aes(classe, ..count..))+geom_bar(aes(fill = classe))
+```
+It seems that the classe variable contains an outcome of 5 possibilities, that appears at a relatively similar frequency, except classe "A" which seems more prevalent than the others.
+
+### Splitting up the data
+First we split the training dataset into a training and a validation set, in order to calculate the out of sample error down the line.
+
+```{r split}
+library(caret)
+set.seed(3980)
+inTrain <- createDataPartition(y=pml.training$classe, p=0.8, list=F)
+pml.train <- pml.training[inTrain, ]
+pml.validate <- pml.training[-inTrain, ]
+```
+
+### Cleaning up the data
+The data has a lot or variables. To reduce the number we check if any have near zero variance using the caret function. Those that do, we remove from the training dataset:
+
+```{r nzv}
+nsv <- nearZeroVar(pml.train, saveMetrics = TRUE)
+head(nsv)
+
+# Take the rows (columns in original data) that have near zero variance prediction
+nzvp_rm<-rownames(nsv[nsv$nzv==TRUE,])
+
+# Remove these variables from the training data
+pml.train<-pml.train[,-which(colnames(pml.train) %in% nzvp_rm)]
+dim(pml.train)
+```
+
+56 variables with near zero variance were removed, giving a training data set with 103 variables. After further inspection a lot of the column seem to have mainly NAs. Here we identify and remove those with > 80% NA values:
+
+```{r NArm}
+NaColNames<-names(pml.train)[sapply(pml.train, function(x) sum(is.na(x)) > length(x)*0.8)]
+pml.train<-pml.train[,-which(colnames(pml.train) %in% NaColNames)]
+dim(pml.train)
+```
+Another 45 variables have been removed, leaving 58
+
+### Model building
+As we have categorical data that we want to predict (the "classe" variable) a powerful option is the random forest approach.
+
+```{r RFmodel}
+# We start with random forest, with 3x cross validation. Don't print the training log
+Control <- trainControl(method="cv", number=3, verboseIter=F)
+
+# I will not run the traing of the model again. to save time, it has been stored in the object "pmlRF.rda" provided in the repo.
+#RFfit <- train(classe ~ ., data=pml.train, method="rf",trControl=Control)
+#save(RFfit, file = "pmlRF.rda")
+load("pmlRF.rda")
+```
+Using the validation dataset that we split from our original training dataset, we can asses this model with a confusion matrix, giving an indication of out of sample accuracy:
+
+```{r RFconfuse}
+pred_RF <- predict(RFfit, pml.validate)
+cmRF <- confusionMatrix(pred_RF, factor(pml.validate$classe))
+cmRF
+```
+Suprisingly, this model has a 100% accuracy. Rather than develop more on our prediction model, we will use this initial Random Forest model to predict on our testing dataset:
+
+```{r RFtest}
+test_pred_RF <- predict(RFfit, pml.testing)
+test_pred_RF
+```
+We now have our 20 predictions of "classe" for our testing dataset. Plugging these into the project prediction quiz shows that they are all 20 correct.  
